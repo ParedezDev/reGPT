@@ -5,7 +5,7 @@
 - [X] **Task 1.1:** Set up project directory structure (`src/`, `tests/`, `data/`, etc.).
 - [X] **Task 1.2:** Install and configure dependencies (PyTorch, Huggingface datasets, tokenizers).
 - [X] **Task 1.3:** Implement Input Embedding Layer using PyTorch's nn.Embedding.
-- [ ] **Task 1.4:** Implement Positional Encoding (e.g., Sinusoidal or Learned).
+- [X] **Task 1.4:** Implement Positional Encoding (e.g., Sinusoidal or Learned).
 - [ ] **Task 1.5:** Implement Scaled Dot-Product Attention (with masking) using PyTorch tensor operations.
 - [ ] **Task 1.6:** Implement Multi-Head Self-Attention (using Scaled Dot-Product Attention).
 - [ ] **Task 1.7:** Use PyTorch's nn.LayerNorm for Layer Normalization.
