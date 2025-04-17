@@ -265,34 +265,45 @@ class MultiHeadSelfAttention(nn.Module):
         k = self.split_heads(k)  # (batch_size, num_heads, seq_length, d_k)
         v = self.split_heads(v)  # (batch_size, num_heads, seq_length, d_k)
 
-        # If mask is provided, expand it to work with multiple heads
+        # Apply scaled dot-product attention to all heads at once
+        # Reshape q, k, v for batch processing of all heads
+        batch_size, num_heads, seq_length, d_k = q.size()
+
+        # Reshape for batch processing: (batch_size * num_heads, seq_length, d_k)
+        q_reshaped = q.contiguous().view(batch_size * num_heads, seq_length, d_k)
+        k_reshaped = k.contiguous().view(batch_size * num_heads, seq_length, d_k)
+        v_reshaped = v.contiguous().view(batch_size * num_heads, seq_length, d_k)
+
+        # Prepare mask for batch processing if provided
         if mask is not None:
-            # Add head dimension if needed
-            if mask.dim() == 3 and mask.size(1) == 1:  # (batch_size, 1, seq_length)
-                # Expand to (batch_size, 1, 1, seq_length) for broadcasting across heads and query positions
-                mask = mask.unsqueeze(1)
+            # Handle different mask shapes
+            if mask.dim() == 3:  # (batch_size, 1, seq_length) or (batch_size, seq_length, seq_length)
+                if mask.size(1) == 1:
+                    # Expand to (batch_size, 1, 1, seq_length) for broadcasting
+                    mask = mask.unsqueeze(1)
+                    # Repeat for each head: (batch_size, num_heads, 1, seq_length)
+                    mask = mask.expand(-1, num_heads, -1, -1)
+                    # Reshape: (batch_size * num_heads, 1, seq_length)
+                    mask = mask.contiguous().view(batch_size * num_heads, 1, seq_length)
+                else:  # (batch_size, seq_length, seq_length)
+                    # Repeat for each head: (batch_size, num_heads, seq_length, seq_length)
+                    mask = mask.unsqueeze(1).expand(-1, num_heads, -1, -1)
+                    # Reshape: (batch_size * num_heads, seq_length, seq_length)
+                    mask = mask.contiguous().view(batch_size * num_heads, seq_length, seq_length)
 
-        # Apply scaled dot-product attention to each head
-        # We'll collect attention weights from each head for visualization/analysis
-        all_head_outputs = []
-        all_head_weights = []
+        # Apply attention to all heads at once
+        attn_output, attn_weights = self.attention(q_reshaped, k_reshaped, v_reshaped, mask)
 
-        for head_idx in range(self.num_heads):
-            head_q = q[:, head_idx]  # (batch_size, seq_length, d_k)
-            head_k = k[:, head_idx]  # (batch_size, seq_length, d_k)
-            head_v = v[:, head_idx]  # (batch_size, seq_length, d_k)
+        # Reshape attention output back to separate heads
+        # (batch_size * num_heads, seq_length, d_k) -> (batch_size, num_heads, seq_length, d_k)
+        attn_output = attn_output.view(batch_size, num_heads, seq_length, d_k)
 
-            head_output, head_weights = self.attention(head_q, head_k, head_v, mask)
-
-            all_head_outputs.append(head_output)
-            all_head_weights.append(head_weights)
-
-        # Stack outputs and weights
-        outputs = torch.stack(all_head_outputs, dim=1)  # (batch_size, num_heads, seq_length, d_k)
-        attention_weights = torch.stack(all_head_weights, dim=1)  # (batch_size, num_heads, seq_length, seq_length)
+        # Reshape attention weights back to separate heads
+        # (batch_size * num_heads, seq_length, seq_length) -> (batch_size, num_heads, seq_length, seq_length)
+        attn_weights = attn_weights.view(batch_size, num_heads, seq_length, seq_length)
 
         # Combine heads
-        combined_output = self.combine_heads(outputs)  # (batch_size, seq_length, d_model)
+        combined_output = self.combine_heads(attn_output)  # (batch_size, seq_length, d_model)
 
         # Final linear projection
         output = self.W_o(combined_output)  # (batch_size, seq_length, d_model)
@@ -301,6 +312,6 @@ class MultiHeadSelfAttention(nn.Module):
         output = self.dropout(output)
 
         # Average attention weights across heads for visualization/analysis
-        avg_attention_weights = attention_weights.mean(dim=1)  # (batch_size, seq_length, seq_length)
+        avg_attention_weights = attn_weights.mean(dim=1)  # (batch_size, seq_length, seq_length)
 
         return output, avg_attention_weights
