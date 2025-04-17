@@ -2,8 +2,8 @@
 
 ## Phase 1: Project Setup & Core Components Implementation
 
-- [ ] **Task 1.1:** Set up project directory structure (`src/`, `tests/`, `data/`, etc.).
-- [ ] **Task 1.2:** Install and configure dependencies (PyTorch, Huggingface datasets, tokenizers).
+- [X] **Task 1.1:** Set up project directory structure (`src/`, `tests/`, `data/`, etc.).
+- [X] **Task 1.2:** Install and configure dependencies (PyTorch, Huggingface datasets, tokenizers).
 - [ ] **Task 1.3:** Implement Input Embedding Layer using PyTorch's nn.Embedding.
 - [ ] **Task 1.4:** Implement Positional Encoding (e.g., Sinusoidal or Learned).
 - [ ] **Task 1.5:** Implement Scaled Dot-Product Attention (with masking) using PyTorch tensor operations.
