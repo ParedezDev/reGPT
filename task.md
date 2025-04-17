@@ -7,7 +7,7 @@
 - [X] **Task 1.3:** Implement Input Embedding Layer using PyTorch's nn.Embedding.
 - [X] **Task 1.4:** Implement Positional Encoding (e.g., Sinusoidal or Learned).
 - [X] **Task 1.5:** Implement Scaled Dot-Product Attention (with masking) using PyTorch tensor operations.
-- [ ] **Task 1.6:** Implement Multi-Head Self-Attention (using Scaled Dot-Product Attention).
+- [X] **Task 1.6:** Implement Multi-Head Self-Attention (using Scaled Dot-Product Attention).
 - [ ] **Task 1.7:** Use PyTorch's nn.LayerNorm for Layer Normalization.
 - [ ] **Task 1.8:** Implement Position-wise Feed-Forward Network using PyTorch's nn.Linear.
 - [ ] **Task 1.9:** Assemble a single Decoder Block as a PyTorch nn.Module.

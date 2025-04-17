@@ -1,15 +1,15 @@
 """
 Attention mechanisms for transformer models.
 
-This module implements the Scaled Dot-Product Attention mechanism
-as described in the paper "Attention Is All You Need".
+This module implements the Scaled Dot-Product Attention and Multi-Head Self-Attention
+mechanisms as described in the paper "Attention Is All You Need".
 """
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
-from typing import Optional
+from typing import Optional, Tuple
 
 
 class ScaledDotProductAttention(nn.Module):
@@ -138,3 +138,169 @@ def create_padding_mask(src: torch.Tensor, pad_idx: int) -> torch.Tensor:
     mask = mask.unsqueeze(1)  # Shape: (batch_size, 1, seq_length)
 
     return mask
+
+
+class MultiHeadSelfAttention(nn.Module):
+    """
+    Multi-Head Self-Attention mechanism.
+
+    This splits the input into multiple heads, applies scaled dot-product attention
+    to each head independently, and then concatenates the results and projects them
+    back to the original dimension.
+
+    Formula: MultiHead(Q, K, V) = Concat(head_1, ..., head_h) * W_o
+             where head_i = Attention(Q * W_q_i, K * W_k_i, V * W_v_i)
+    """
+
+    def __init__(self, d_model: int, num_heads: int, dropout: float = 0.1):
+        """
+        Initialize the Multi-Head Self-Attention.
+
+        Args:
+            d_model: Model dimension (must be divisible by num_heads)
+            num_heads: Number of attention heads
+            dropout: Dropout probability for attention weights
+        """
+        super().__init__()
+
+        if d_model % num_heads != 0:
+            raise ValueError(f"d_model ({d_model}) must be divisible by num_heads ({num_heads})")
+
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.d_k = d_model // num_heads  # Dimension of each head
+
+        # Linear projections for Q, K, V, and output
+        self.W_q = nn.Linear(d_model, d_model)
+        self.W_k = nn.Linear(d_model, d_model)
+        self.W_v = nn.Linear(d_model, d_model)
+        self.W_o = nn.Linear(d_model, d_model)
+
+        # Scaled dot-product attention with dropout
+        self.attention = ScaledDotProductAttention(dropout=dropout)
+
+        # Output dropout
+        self.dropout = nn.Dropout(p=dropout)
+
+        # Initialize weights
+        self._init_weights()
+
+    def _init_weights(self):
+        """
+        Initialize the weights using Xavier uniform initialization.
+        """
+        gain = nn.init.calculate_gain('linear')
+        for module in [self.W_q, self.W_k, self.W_v, self.W_o]:
+            nn.init.xavier_uniform_(module.weight, gain=gain)
+            nn.init.zeros_(module.bias)
+
+    def split_heads(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Split the last dimension into (num_heads, d_k).
+
+        Args:
+            x: Tensor of shape (batch_size, seq_length, d_model)
+
+        Returns:
+            Tensor of shape (batch_size, num_heads, seq_length, d_k)
+        """
+        batch_size, seq_length, _ = x.size()
+
+        # Reshape to (batch_size, seq_length, num_heads, d_k)
+        x = x.view(batch_size, seq_length, self.num_heads, self.d_k)
+
+        # Transpose to (batch_size, num_heads, seq_length, d_k)
+        return x.transpose(1, 2)
+
+    def combine_heads(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Combine the heads back into the original shape.
+
+        Args:
+            x: Tensor of shape (batch_size, num_heads, seq_length, d_k)
+
+        Returns:
+            Tensor of shape (batch_size, seq_length, d_model)
+        """
+        batch_size, _, seq_length, _ = x.size()
+
+        # Transpose to (batch_size, seq_length, num_heads, d_k)
+        x = x.transpose(1, 2)
+
+        # Reshape to (batch_size, seq_length, d_model)
+        return x.contiguous().view(batch_size, seq_length, self.d_model)
+
+    def forward(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Compute the multi-head self-attention.
+
+        Args:
+            query: Query tensor of shape (batch_size, seq_length, d_model)
+            key: Key tensor of shape (batch_size, seq_length, d_model)
+            value: Value tensor of shape (batch_size, seq_length, d_model)
+            mask: Optional mask tensor of shape (batch_size, 1, seq_length) or
+                  (batch_size, seq_length, seq_length) or broadcastable to the
+                  attention weights. Values of True or 1 indicate positions to mask.
+
+        Returns:
+            tuple containing:
+                - output: Attention output of shape (batch_size, seq_length, d_model)
+                - attention_weights: Average attention weights across heads of shape
+                                    (batch_size, seq_length, seq_length)
+        """
+
+        # Linear projections
+        q = self.W_q(query)  # (batch_size, seq_length, d_model)
+        k = self.W_k(key)    # (batch_size, seq_length, d_model)
+        v = self.W_v(value)  # (batch_size, seq_length, d_model)
+
+        # Split into multiple heads
+        q = self.split_heads(q)  # (batch_size, num_heads, seq_length, d_k)
+        k = self.split_heads(k)  # (batch_size, num_heads, seq_length, d_k)
+        v = self.split_heads(v)  # (batch_size, num_heads, seq_length, d_k)
+
+        # If mask is provided, expand it to work with multiple heads
+        if mask is not None:
+            # Add head dimension if needed
+            if mask.dim() == 3 and mask.size(1) == 1:  # (batch_size, 1, seq_length)
+                # Expand to (batch_size, 1, 1, seq_length) for broadcasting across heads and query positions
+                mask = mask.unsqueeze(1)
+
+        # Apply scaled dot-product attention to each head
+        # We'll collect attention weights from each head for visualization/analysis
+        all_head_outputs = []
+        all_head_weights = []
+
+        for head_idx in range(self.num_heads):
+            head_q = q[:, head_idx]  # (batch_size, seq_length, d_k)
+            head_k = k[:, head_idx]  # (batch_size, seq_length, d_k)
+            head_v = v[:, head_idx]  # (batch_size, seq_length, d_k)
+
+            head_output, head_weights = self.attention(head_q, head_k, head_v, mask)
+
+            all_head_outputs.append(head_output)
+            all_head_weights.append(head_weights)
+
+        # Stack outputs and weights
+        outputs = torch.stack(all_head_outputs, dim=1)  # (batch_size, num_heads, seq_length, d_k)
+        attention_weights = torch.stack(all_head_weights, dim=1)  # (batch_size, num_heads, seq_length, seq_length)
+
+        # Combine heads
+        combined_output = self.combine_heads(outputs)  # (batch_size, seq_length, d_model)
+
+        # Final linear projection
+        output = self.W_o(combined_output)  # (batch_size, seq_length, d_model)
+
+        # Apply dropout to the output
+        output = self.dropout(output)
+
+        # Average attention weights across heads for visualization/analysis
+        avg_attention_weights = attention_weights.mean(dim=1)  # (batch_size, seq_length, seq_length)
+
+        return output, avg_attention_weights
